@@ -1,2 +1,3 @@
 # Bloxseas-MultiPlayer
-A blox fruit like game that uses Peer.js To make multi player work
+A Blox Fruits-like game that uses Peer.js to make multiplayer work
+Always download the latest version. Check out my other Games.
