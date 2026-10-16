@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Blox Seas RPG - Complete Local & Multiplayer Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS for WebRTC P2P Multiplayer -->
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap');
+        
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #0f172a;
+            touch-action: none; font-family: 'Nunito', sans-serif;
+            user-select: none; -webkit-user-select: none;
+        }
+        #gameCanvas { position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        /* UI Layer */
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10; pointer-events: none; display: flex; flex-direction: column;
+            justify-content: space-between; padding: 15px; box-sizing: border-box;
+        }
+        
+        .glass-panel {
+            pointer-events: auto; background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(8px); border-radius: 12px; padding: 12px;
+            color: white; border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        
+        .bar-container {
+            width: 220px; height: 16px; background: rgba(0,0,0,0.5);
+            border-radius: 8px; overflow: hidden; margin-top: 6px;
+            border: 1px solid rgba(255,255,255,0.1); position: relative;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .bar-fill { height: 100%; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .bar-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 10px; font-weight: 900; text-shadow: 1px 1px 2px #000; letter-spacing: 0.5px;}
+        #health-bar { background: linear-gradient(90deg, #ef4444, #dc2626); }
+        #exp-bar { background: linear-gradient(90deg, #0ea5e9, #0284c7); }
+        #mastery-bar { background: linear-gradient(90deg, #8b5cf6, #6d28d9); transition: width 0.1s linear; }
+
+        /* Hotbar & Skills */
+        #hotbar { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; pointer-events: auto; }
+        .hotbar-slot {
+            width: 150px; height: 45px; background: rgba(30,41,59,0.9); border: 2px solid #334155;
+            border-radius: 10px; display: flex; align-items: center; padding: 0 12px;
+            color: #94a3b8; font-weight: bold; font-size: 14px; cursor: pointer; transition: all 0.2s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .hotbar-slot.active { border-color: #38bdf8; background: rgba(15,23,42,0.95); color: white; transform: translateY(-5px); box-shadow: 0 8px 15px rgba(56,189,248,0.2); }
+        .slot-num { background: #0f172a; color: #38bdf8; padding: 2px 8px; border-radius: 6px; font-size: 11px; margin-right: 10px; border: 1px solid #334155;}
+
+        #skill-bar { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; gap: 15px; pointer-events: auto; }
+        .skill-slot {
+            width: 60px; height: 60px; background: rgba(30,41,59,0.9);
+            border: 2px solid #334155; border-radius: 12px; position: relative;
+            display: flex; align-items: center; justify-content: center;
+            flex-direction: column; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .skill-key { position: absolute; top: -10px; left: -10px; background: #e2e8f0; color: #0f172a; width: 22px; height: 22px; border-radius: 6px; font-weight: 900; font-size: 11px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.5); border: 2px solid #0f172a;}
+        .skill-name { font-size: 10px; font-weight: 700; color: #cbd5e1; margin-top: 4px; line-height: 1.1;}
+        .skill-cd { position: absolute; bottom: 0; left: 0; width: 100%; height: 0%; background: rgba(0,0,0,0.8); border-radius: 10px; transition: height 0.1s linear; }
+        .skill-locked { position: absolute; inset: 0; background: rgba(15,23,42,0.85); border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-direction: column; font-size: 10px; font-weight: bold; color: #ef4444;}
+
+        /* Modals */
+        .modal {
+            display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+            width: 340px; max-height: 85vh; overflow-y: auto; padding: 20px;
+            pointer-events: auto; color: white; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8); z-index: 50;
+            backdrop-filter: blur(10px);
+        }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+        .close-btn { color: #64748b; cursor: pointer; font-weight: bold; font-size: 24px; transition: color 0.2s; line-height: 1;} .close-btn:hover { color: white; }
+        
+        #stats-modal { top: 120px; left: 20px; transform: none; width: 300px; }
+        .stat-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .stat-btn { background: #38bdf8; color: #0f172a; border: none; width: 28px; height: 28px; border-radius: 6px; font-weight: 900; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.1s; }
+        .stat-btn:active { transform: scale(0.9); }
+        .stat-btn:disabled { background: #475569; cursor: not-allowed; }
+        
+        .inv-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .inv-item { background: rgba(30,41,59,0.8); border: 1px solid #334155; border-radius: 8px; padding: 12px; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .inv-item:hover { border-color: #38bdf8; background: rgba(56,189,248,0.1); transform: translateY(-2px); }
+        
+        /* Hints & Notifications */
+        .interact-hint {
+            position: absolute; bottom: 180px; left: 50%; transform: translateX(-50%);
+            background: #eab308; color: #0f172a; font-weight: 900; letter-spacing: 0.5px;
+            border-radius: 20px; padding: 10px 24px; box-shadow: 0 4px 15px rgba(234,179,8,0.3);
+            pointer-events: auto; cursor: pointer; animation: bounce 1s infinite; z-index: 40; display: none;
+        }
+        @keyframes bounce { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -10px); } }
+
+        #notifications { position: absolute; top: 120px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; z-index: 100; }
+        .notification { background: rgba(15,23,42,0.9); color: #fff; padding: 10px 20px; border-radius: 8px; font-weight: 700; animation: slideUpFade 3s forwards; border-left: 4px solid #fff; font-size: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); backdrop-filter: blur(4px);}
+        @keyframes slideUpFade { 0% { opacity: 0; transform: translateY(20px); } 10% { opacity: 1; transform: translateY(0); } 80% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-20px); } }
+
+        .play-btn {
+            background: linear-gradient(135deg, #0ea5e9, #2563eb); border: none;
+            padding: 16px 48px; border-radius: 12px; color: white; font-weight: 900;
+            font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 10px 20px rgba(37,99,235,0.4);
+            letter-spacing: 1px;
+        }
+        .play-btn:hover { transform: translateY(-3px); box-shadow: 0 15px 25px rgba(37,99,235,0.6); }
+        .play-btn:active { transform: translateY(2px); }
+
+        /* Mobile Controls */
+        #mobile-controls { display: none; position: absolute; bottom: 20px; left: 20px; right: 20px; justify-content: space-between; align-items: flex-end; pointer-events: none; z-index: 20; }
+        
+        .show-mobile #mobile-controls { display: flex; }
+        .show-mobile .bar-container { width: 160px; }
+        .show-mobile #hotbar { bottom: 200px; transform: scale(0.85) translateX(-55%); }
+        .show-mobile #skill-bar { bottom: 130px; transform: scale(0.85) translateX(-55%); }
+        .show-mobile #stats-modal { top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 200; width: 90%;}
+        .show-mobile .interact-hint { bottom: 260px; }
+        .show-mobile .glass-panel { padding: 8px; }
+
+        .joystick-base { width: 120px; height: 120px; background: rgba(255, 255, 255, 0.05); border: 2px solid rgba(255, 255, 255, 0.2); border-radius: 50%; position: relative; pointer-events: auto; backdrop-filter: blur(4px); }
+        .joystick-stick { width: 50px; height: 50px; background: rgba(255, 255, 255, 0.8); border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .action-btn { width: 65px; height: 65px; background: rgba(239, 68, 68, 0.2); border: 2px solid rgba(239, 68, 68, 0.5); border-radius: 50%; color: white; font-weight: 900; display: flex; align-items: center; justify-content: center; pointer-events: auto; margin-bottom: 12px; font-size: 14px; backdrop-filter: blur(4px); transition: transform 0.1s;}
+        .action-btn:active { transform: scale(0.9); }
+        .utility-btn { width: 55px; height: 55px; background: rgba(34, 197, 94, 0.2); border: 2px solid rgba(34, 197, 94, 0.5); border-radius: 12px; color: white; font-weight: bold; display: flex; align-items: center; justify-content: center; pointer-events: auto; margin-bottom: 8px; font-size: 10px; text-align: center; backdrop-filter: blur(4px);}
+    </style>
+</head>
+<body>
+
+    <!-- Loading / Login Screen -->
+    <div id="start-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-950 bg-opacity-90"></div>
+        <div id="login-container" class="relative z-10 bg-slate-900 p-8 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-md text-center">
+            <h1 class="text-5xl font-black mb-2 text-white italic tracking-tighter">BLOX <span class="text-blue-500">SEAS</span></h1>
+            <p class="text-slate-400 mb-6 text-sm">Offline Local Save + Real-Time Multiplayer</p>
+            
+            <input type="text" id="username-input" placeholder="Character Name..." maxlength="15" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 text-white mb-4 focus:outline-none focus:border-blue-500 transition-colors text-center font-bold">
+            
+            <!-- Multiplayer Controls -->
+            <div class="bg-slate-800/60 p-4 rounded-xl border border-slate-700 mb-6 text-left">
+                <div class="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider text-center">Multiplayer Lobby</div>
+                <div class="flex gap-2 mb-2">
+                    <button onclick="window.hostMultiplayer()" id="host-btn" class="bg-purple-600 hover:bg-purple-500 text-white font-bold py-2 px-3 rounded-lg text-xs w-1/2 transition-colors">HOST ROOM</button>
+                    <button onclick="window.joinMultiplayer()" id="join-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-3 rounded-lg text-xs w-1/2 transition-colors">JOIN ROOM</button>
+                </div>
+                <input type="text" id="room-input" placeholder="Enter Room Code..." maxlength="36" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white text-xs text-center font-mono focus:outline-none focus:border-indigo-500">
+                <div id="mp-status" class="text-xs text-center font-bold mt-2 text-slate-400">Mode: Single Player</div>
+            </div>
+
+            <div id="start-buttons" class="flex flex-col items-center gap-4">
+                <button id="login-btn" class="play-btn w-full" onclick="window.handleLogin()">ENTER SEAS</button>
+                <div class="flex gap-3 mt-2 z-10 pointer-events-auto">
+                    <button onclick="window.toggleMobileControls()" class="bg-slate-800 border border-slate-600 hover:bg-slate-700 text-slate-300 font-bold py-2 px-4 rounded-lg transition-colors text-sm">📱 Toggle Mobile</button>
+                    <button onclick="window.wipeData()" class="bg-red-900/50 border border-red-700 hover:bg-red-800/80 text-red-300 font-bold py-2 px-4 rounded-lg transition-colors text-sm">🗑️ Wipe Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Main UI Layer -->
+    <div id="ui-layer" style="display: none;">
+        
+        <!-- Top Left Info -->
+        <div class="flex justify-between items-start w-full">
+            <div class="glass-panel flex flex-col gap-1">
+                <div class="flex gap-2 items-center mb-2">
+                    <span class="text-2xl font-black text-white drop-shadow">Lv. <span id="ui-level" class="text-blue-400">1</span></span>
+                    <button onclick="window.toggleMobileControls()" class="ml-2 bg-slate-700 hover:bg-slate-600 text-xs px-2 py-1.5 rounded-md font-bold transition-colors" title="Toggle Mobile Controls">📱</button>
+                    <button onclick="window.toggleModal('stats-modal')" class="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1.5 rounded-md font-bold transition-colors">STATS</button>
+                    <button onclick="window.toggleModal('inv-modal'); window.renderInventory();" class="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1.5 rounded-md font-bold transition-colors">MENU</button>
+                    <button onclick="window.saveGameManual()" class="bg-emerald-600 hover:bg-emerald-500 text-xs px-3 py-1.5 rounded-md font-bold transition-colors shadow-[0_0_10px_rgba(16,185,129,0.3)]">SAVE</button>
+                </div>
+                <div class="bar-container"><div id="health-bar" class="bar-fill" style="width: 100%;"></div><div class="bar-text" id="ui-hp-text">100/100</div></div>
+                <div class="bar-container"><div id="exp-bar" class="bar-fill" style="width: 0%;"></div><div class="bar-text" id="ui-exp-text">0/100</div></div>
+                <div class="mt-2 font-black text-emerald-400 text-base flex items-center gap-1">
+                    <span class="text-emerald-500">$</span><span id="ui-beli">0</span>
+                </div>
+            </div>
+
+            <!-- Active Ability Info -->
+            <div class="glass-panel flex items-center gap-4">
+                <div class="flex flex-col text-right">
+                    <span class="font-black text-xl text-white tracking-wide" id="ui-active-name">Combat</span>
+                    <span class="text-xs text-purple-300 font-bold mb-1">Mastery <span id="ui-active-level">1</span></span>
+                    <div class="bar-container" style="width: 140px; height: 6px; margin-top: 0;">
+                        <div id="mastery-bar" class="bar-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+                <div id="ui-active-icon" class="text-4xl bg-slate-800 p-3 rounded-xl border border-slate-600 shadow-inner flex items-center justify-center min-w-[60px] min-h-[60px]">👊</div>
+            </div>
+        </div>
+
+        <!-- Hotbar -->
+        <div id="hotbar">
+            <div id="slot-1" class="hotbar-slot active" onclick="window.setActiveSlot(1)">
+                <span class="slot-num">1</span> <span id="hotbar-1-name" class="truncate">Combat</span>
+            </div>
+            <div id="slot-2" class="hotbar-slot" onclick="window.setActiveSlot(2)">
+                <span class="slot-num">2</span> <span id="hotbar-2-name" class="truncate">None</span>
+            </div>
+        </div>
+
+        <!-- Skills Bar -->
+        <div id="skill-bar"></div>
+
+        <!-- Interact Hints -->
+        <div id="hint-fruit" class="interact-hint" onclick="window.handleInteract('fruit')">Press [E] to Store Fruit</div>
+        <div id="hint-shop" class="interact-hint" onclick="window.handleInteract('shop')">Press [F] to Shop</div>
+        <div id="hint-boat" class="interact-hint" onclick="window.handleInteract('boat')" style="background: #3b82f6; color: white;">Press [G] to Drive</div>
+        <div id="hint-aura" class="interact-hint" onclick="window.handleInteract('aura')" style="background: #8b5cf6; color: white; bottom: 240px;">Press [J] for Aura</div>
+
+        <!-- Stats Modal -->
+        <div id="stats-modal" class="modal">
+            <div class="modal-header"><h2 class="text-xl font-black text-white tracking-wide">STATISTICS</h2><span class="close-btn" onclick="window.toggleModal('stats-modal')">&times;</span></div>
+            <div class="bg-slate-800 rounded-lg p-3 mb-4 border border-slate-700 flex justify-between items-center">
+                <span class="text-sm font-bold text-slate-300">Available Points</span>
+                <span class="text-lg font-black text-amber-400" id="ui-stat-points">0</span>
+            </div>
+            <div class="stat-row">
+                <div><div class="font-black text-rose-400 text-lg">Melee <span class="text-sm text-slate-400">Lv.<span id="ui-stat-melee">1</span></span></div><div class="text-xs text-slate-500 font-bold">Boosts Slot 1 Damage</div></div>
+                <button class="stat-btn" onclick="window.upgradeStat('melee')">+</button>
+            </div>
+            <div class="stat-row">
+                <div><div class="font-black text-emerald-400 text-lg">Defense <span class="text-sm text-slate-400">Lv.<span id="ui-stat-defense">1</span></span></div><div class="text-xs text-slate-500 font-bold">Boosts Max Health</div></div>
+                <button class="stat-btn" onclick="window.upgradeStat('defense')">+</button>
+            </div>
+            <div class="stat-row" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
+                <div><div class="font-black text-fuchsia-400 text-lg">Fruit <span class="text-sm text-slate-400">Lv.<span id="ui-stat-fruit">1</span></span></div><div class="text-xs text-slate-500 font-bold">Boosts Slot 2 Damage</div></div>
+                <button class="stat-btn" onclick="window.upgradeStat('fruit')">+</button>
+            </div>
+        </div>
+
+        <!-- Inventory Modal -->
+        <div id="inv-modal" class="modal" style="width: 380px;">
+            <div class="modal-header"><h2 class="text-xl font-black text-white tracking-wide">INVENTORY</h2><span class="close-btn" onclick="window.toggleModal('inv-modal')">&times;</span></div>
+            <div id="inv-grid" class="inv-grid"></div>
+            <div id="inv-details" class="mt-4 hidden bg-slate-800 rounded-xl p-4 border border-slate-700 text-center">
+                <div class="text-5xl mb-2 drop-shadow-md" id="inv-det-icon"></div>
+                <div class="font-black text-xl mb-3 tracking-wide" id="inv-det-name"></div>
+                <button id="inv-eat-btn" class="bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white font-black py-3 px-4 rounded-lg w-full transition-transform active:scale-95 shadow-lg">EAT FRUIT (Equips to Slot 2)</button>
+            </div>
+        </div>
+
+        <!-- Shop Modal -->
+        <div id="shop-modal" class="modal" style="width: 340px;">
+            <div class="modal-header"><h2 class="text-xl font-black text-amber-400 tracking-wide" id="shop-title">MERCHANT</h2><span class="close-btn" onclick="window.toggleModal('shop-modal')">&times;</span></div>
+            <div class="flex flex-col gap-3" id="shop-content">
+                <!-- Content generated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <div id="notifications"></div>
+
+    <div id="mobile-controls">
+        <div class="joystick-base" id="joystick"><div class="joystick-stick" id="stick"></div></div>
+        
+        <div class="flex flex-col items-center">
+             <div class="utility-btn hidden" id="btn-aura" style="background: rgba(139, 92, 246, 0.3); border-color: rgba(139, 92, 246, 0.6);" onclick="window.handleInteract('aura')">AURA</div>
+             <div class="utility-btn hidden" id="btn-boat" style="background: rgba(59, 130, 246, 0.3); border-color: rgba(59, 130, 246, 0.6);" onclick="window.handleInteract('boat')">DRIVE</div>
+        </div>
+
+        <div class="flex gap-3 flex-col items-end">
+            <div class="flex gap-2">
+                <div class="action-btn" id="btn-z">Z</div>
+                <div class="action-btn" id="btn-x">X</div>
+                <div class="action-btn" id="btn-c">C</div>
+            </div>
+            <div class="action-btn" style="width: 85px; height: 85px; font-size: 18px; background: rgba(14, 165, 233, 0.2); border-color: rgba(14, 165, 233, 0.6);" id="btn-attack">M1</div>
+        </div>
+    </div>
+
+<script>
+/**
+ * BLOX SEAS RPG - Main Engine
+ */
+let canvas = document.getElementById('gameCanvas'); 
+let ctx = canvas.getContext('2d');
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+window.addEventListener('resize', resize); resize();
+
+let isMobileUI = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+if(isMobileUI) document.body.classList.add('show-mobile');
+
+window.toggleMobileControls = function() {
+    document.body.classList.toggle('show-mobile');
+}
+
+const modals = ['stats-modal', 'shop-modal', 'inv-modal'];
+window.toggleModal = function(id) { 
+    modals.forEach(m => { if(m !== id) document.getElementById(m).style.display = 'none'; });
+    const el = document.getElementById(id);
+    el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+function notify(text, color='#fff') {
+    const el = document.createElement('div'); el.className = 'notification'; 
+    el.style.borderColor = color; el.innerHTML = `<span style="color:${color}">●</span> ${text}`;
+    document.getElementById('notifications').appendChild(el);
+    setTimeout(() => { if(el.parentNode) el.remove(); }, 3000);
+}
+
+// --- ABILITIES DATA (Fruits & Melee Styles) ---
+const ABILITIES = {
+    COMBAT: { id: 'COMBAT', name: 'Combat', type: 'melee', icon: '👊', color: '#e2e8f0', skills: [ { key: 'Z', id: 'z', name: 'Dash Strike', req: 1, cd: 3, type: 'dash', speed: 1000, dmgMult: 0 }, { key: 'X', id: 'x', name: 'Ground Smash', req: 10, cd: 6, type: 'aoe', radius: 120, dmgMult: 1.5 }, { key: 'C', id: 'c', name: 'Shockwave', req: 25, cd: 10, type: 'projectile', speed: 900, range: 450, dmgMult: 2.0, width: 35 } ] },
+    DARK_STEP: { id: 'DARK_STEP', name: 'Dark Step', type: 'melee', icon: '🦵', color: '#f97316', skills: [ { key: 'Z', id: 'z', name: 'Air Kick', req: 1, cd: 2, type: 'projectile', speed: 1100, range: 350, dmgMult: 1.2, width: 25 }, { key: 'X', id: 'x', name: 'Breakdance', req: 20, cd: 5, type: 'aoe', radius: 140, dmgMult: 1.8 }, { key: 'C', id: 'c', name: 'Diable Jambe', req: 50, cd: 8, type: 'projectile_aoe', speed: 900, range: 550, radius: 160, dmgMult: 3.0, width: 30, effect: 'burn' } ] },
+    LIGHT: { id: 'LIGHT', name: 'Light', type: 'fruit', icon: '✨', color: '#fef08a', skills: [ { key: 'Z', id: 'z', name: 'Light Beam', req: 1, cd: 2, type: 'projectile', speed: 1800, range: 1200, dmgMult: 1.0, width: 10 }, { key: 'X', id: 'x', name: 'Light Flight', req: 15, cd: 6, type: 'dash', speed: 1800, dmgMult: 0 }, { key: 'C', id: 'c', name: 'Jewel Barrage', req: 30, cd: 8, type: 'multi_projectile', count: 6, spread: 0.3, speed: 1200, range: 800, dmgMult: 1.5, width: 12 } ] },
+    ROCKET: { id: 'ROCKET', name: 'Rocket', type: 'fruit', icon: '🚀', color: '#ef4444', skills: [ { key: 'Z', id: 'z', name: 'Missile', req: 1, cd: 3, type: 'projectile_aoe', speed: 700, range: 700, radius: 120, dmgMult: 1.5, width: 18 }, { key: 'X', id: 'x', name: 'Artillery', req: 15, cd: 6, type: 'multi_projectile', count: 4, spread: 0.4, speed: 600, range: 600, dmgMult: 1.2, width: 15 }, { key: 'C', id: 'c', name: 'Crash', req: 30, cd: 10, type: 'dash_damage', speed: 1000, radius: 150, dmgMult: 2.5, effect: 'burn' } ] },
+    SPIN: { id: 'SPIN', name: 'Spin', type: 'fruit', icon: '🌀', color: '#cbd5e1', skills: [ { key: 'Z', id: 'z', name: 'Spin Slash', req: 1, cd: 4, type: 'aoe', radius: 140, dmgMult: 1.5 }, { key: 'X', id: 'x', name: 'Tornado', req: 15, cd: 7, type: 'projectile', speed: 400, range: 800, dmgMult: 1.8, pierce: true, width: 45 }, { key: 'C', id: 'c', name: 'Heli Flight', req: 30, cd: 8, type: 'dash', speed: 1100, dmgMult: 0 } ] },
+    BLADE: { id: 'BLADE', name: 'Blade', type: 'fruit', icon: '⚔️', color: '#2dd4bf', skills: [ { key: 'Z', id: 'z', name: 'Flying Slash', req: 1, cd: 2, type: 'projectile', speed: 1000, range: 600, dmgMult: 1.2, pierce: true, width: 15 }, { key: 'X', id: 'x', name: 'Split Dash', req: 15, cd: 6, type: 'dash_damage', speed: 1300, radius: 90, dmgMult: 1.8 }, { key: 'C', id: 'c', name: 'Blade Fest', req: 30, cd: 12, type: 'aoe', radius: 200, dmgMult: 3.0 } ] },
+    GRAVITY: { id: 'GRAVITY', name: 'Gravity', type: 'fruit', icon: '🌌', color: '#d946ef', skills: [ { key: 'Z', id: 'z', name: 'Push', req: 1, cd: 5, type: 'aoe', radius: 180, dmgMult: 1.5 }, { key: 'X', id: 'x', name: 'Meteor', req: 20, cd: 8, type: 'aoe_cursor', radius: 220, castRange: 700, dmgMult: 2.5, effect: 'burn' }, { key: 'C', id: 'c', name: 'Crush Field', req: 50, cd: 15, type: 'aoe', radius: 350, dmgMult: 3.5, effect: 'freeze' } ] },
+    DRAGON: { id: 'DRAGON', name: 'Dragon', type: 'fruit', icon: '🐉', color: '#f59e0b', skills: [ { key: 'Z', id: 'z', name: 'Dragon Claw', req: 1, cd: 4, type: 'multi_projectile', count: 3, spread: 0.2, speed: 1000, range: 500, dmgMult: 1.8, width: 10, effect: 'burn' }, { key: 'X', id: 'x', name: 'Fire Ball', req: 20, cd: 8, type: 'projectile',speed: 1000, range: 1000, dmgMult: 4.5, width: 40, effect: 'burn' }, { key: 'C', id: 'c', name: 'Dragon Blast', req: 50, cd: 20, type: 'projectile_aoe', speed: 1000, range: 1500, radius: 500, dmgMult: 8.5, width: 40, effect: 'burn' } ] }
+};
+const FRUIT_SPAWN_CHANCE = Object.keys(ABILITIES).filter(k => ABILITIES[k].type === 'fruit');
+const masteryData = {}; Object.keys(ABILITIES).forEach(k => { masteryData[k] = { level: 1, exp: 0 }; });
+function getMasteryReq(level) { return Math.floor(50 * Math.pow(1.2, level - 1)); }
+
+const keys = { w: false, a: false, s: false, d: false, e: false, f: false, g: false, j: false, 1: false, 2: false, z: false, x: false, c: false };
+const handled = { e: false, f: false, g: false, j: false, 1: false, 2: false, z: false, x: false, c: false };
+const mouse = { x: 0, y: 0, isDown: false, worldX: 0, worldY: 0 };
+
+window.addEventListener('keydown', e => { const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = true; });
+window.addEventListener('keyup', e => { const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = false; });
+window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+window.addEventListener('mousedown', e => { if(e.target === canvas) mouse.isDown = true; });
+window.addEventListener('mouseup', () => mouse.isDown = false );
+
+// Mobile Handling
+let joystickActive = false; let joystickVector = { x: 0, y: 0 };
+const joystick = document.getElementById('joystick'); const stick = document.getElementById('stick');
+if (joystick) {
+    let jCenter = { x: 0, y: 0 }, jRadius = 60;
+    joystick.addEventListener('touchstart', e => { e.preventDefault(); joystickActive = true; const rect = joystick.getBoundingClientRect(); jCenter = { x: rect.left + rect.width/2, y: rect.top + rect.height/2 }; updateJoystick(e.touches[0]); }, {passive: false});
+    joystick.addEventListener('touchmove', e => { e.preventDefault(); if(joystickActive) updateJoystick(e.touches[0]); }, {passive: false});
+    const endJoystick = e => { e.preventDefault(); joystickActive = false; joystickVector = { x: 0, y: 0 }; stick.style.transform = `translate(-50%, -50%)`; };
+    joystick.addEventListener('touchend', endJoystick); joystick.addEventListener('touchcancel', endJoystick);
+    function updateJoystick(touch) {
+        let dx = touch.clientX - jCenter.x, dy = touch.clientY - jCenter.y; let dist = Math.hypot(dx, dy);
+        if (dist > jRadius) { dx = (dx/dist)*jRadius; dy = (dy/dist)*jRadius; }
+        stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+        joystickVector.x = dx / jRadius; joystickVector.y = dy / jRadius;
+        mouse.x = window.innerWidth/2 + joystickVector.x*200; mouse.y = window.innerHeight/2 + joystickVector.y*200;
+    }
+    const bindBtn = (id, key) => { const btn = document.getElementById(id); btn.addEventListener('touchstart', e => { e.preventDefault(); keys[key] = true; btn.style.transform = 'scale(0.85)'; }); btn.addEventListener('touchend', e => { e.preventDefault(); keys[key] = false; handled[key] = false; btn.style.transform = 'scale(1)'; }); }
+    bindBtn('btn-z', 'z'); bindBtn('btn-x', 'x'); bindBtn('btn-c', 'c');
+    const atkBtn = document.getElementById('btn-attack'); atkBtn.addEventListener('touchstart', e => { e.preventDefault(); mouse.isDown = true; atkBtn.style.transform = 'scale(0.85)'; }); atkBtn.addEventListener('touchend', e => { e.preventDefault(); mouse.isDown = false; atkBtn.style.transform = 'scale(1)'; });
+}
+
+function dist(x1, y1, x2, y2) { return Math.hypot(x2 - x1, y2 - y1); }
+
+class Player {
+    constructor(x, y) {
+        this.x = x; this.y = y; this.radius = 22; this.baseSpeed = 380; this.speed = this.baseSpeed;
+        this.level = 1; this.exp = 0; this.expReq = 100; this.statPoints = 0;
+        this.stats = { melee: 1, defense: 1, fruit: 1 };
+        this.health = this.getMaxHealth(); this.beli = 100;
+        this.inventory = []; this.equippedMelee = 'COMBAT'; this.equippedFruit = null; this.activeSlot = 1; 
+        this.hasAura = false; this.auraActive = false; this.onBoat = null;
+        this.name = "Player";
+        this.cd = { m1: 0, z: 0, x: 0, c: 0 }; this.angle = 0; this.dashTimer = 0; this.dashVector = {x:0, y:0};
+    }
+    getMaxHealth() { return 100 + (this.stats.defense * 25); }
+    getActiveAbility() { if (this.activeSlot === 1) return ABILITIES[this.equippedMelee]; if (this.activeSlot === 2 && this.equippedFruit) return ABILITIES[this.equippedFruit]; return null; }
+    calculateDamage(multiplier) { const ability = this.getActiveAbility(); if(!ability) return 0; const statLvl = ability.type === 'melee' ? this.stats.melee : this.stats.fruit; let baseDmg = 15 + (statLvl * 5) + (this.getMData().level * 2); if(this.auraActive) baseDmg *= 1.3; return baseDmg * multiplier; }
+    getMData() { return masteryData[this.getActiveAbility().id]; }
+
+    update(dt) {
+        ['m1', 'z', 'x', 'c'].forEach(k => { if(this.cd[k] > 0) this.cd[k] -= dt; });
+        if (keys['1'] && !handled['1']) { handled['1'] = true; window.setActiveSlot(1); }
+        if (keys['2'] && !handled['2']) { handled['2'] = true; if(this.equippedFruit) window.setActiveSlot(2); else notify("No fruit equipped!", "#ef4444"); }
+        if (!keys['1']) handled['1'] = false; if (!keys['2']) handled['2'] = false;
+        if (keys['j'] && !handled['j']) { handled['j'] = true; window.handleInteract('aura'); }
+        if (!keys['j']) handled['j'] = false;
+
+        if (this.dashTimer > 0) {
+            this.dashTimer -= dt; this.x += this.dashVector.x * dt; this.y += this.dashVector.y * dt;
+            if(Math.random() < 0.6) particles.push(new Particle(this.x, this.y, this.getActiveAbility()?.color || '#fff', 0, 0, 0.3, 12));
+        } else {
+            let dx = 0, dy = 0;
+            if (joystickActive) { dx = joystickVector.x; dy = joystickVector.y; }
+            else {
+                if (keys.w) dy -= 1; if (keys.s) dy += 1;
+                if (keys.a) dx -= 1; if (keys.d) dx += 1;
+                if (dx !== 0 && dy !== 0) { const length = Math.hypot(dx, dy); dx /= length; dy /= length; }
+            }
+
+            const onIsland = checkOnIsland(this.x, this.y);
+            if (this.onBoat) this.speed = 600; else this.speed = onIsland ? this.baseSpeed : this.baseSpeed * 0.5;
+            
+            if (!onIsland && !this.onBoat && this.equippedFruit) {
+                if(!this.waterTick) this.waterTick = 0; this.waterTick += dt;
+                if(this.waterTick > 1) { this.takeDamage(this.getMaxHealth() * 0.08); spawnTextParticle(this.x, this.y - 40, "Water Damage!", "#ef4444"); this.waterTick = 0; }
+            } else if (this.health < this.getMaxHealth() && Math.random() < 0.05) {
+                this.health = Math.min(this.getMaxHealth(), this.health + this.getMaxHealth() * 0.01); updateUI();
+            }
+
+            let newX = this.x + dx * this.speed * dt;
+            let newY = this.y + dy * this.speed * dt;
+            
+            if (this.onBoat) {
+                for (let island of islands) {
+                    if (dist(newX, newY, island.x, island.y) <= island.radius + 40) {
+                        newX = this.x; newY = this.y; break;
+                    }
+                }
+            }
+
+            this.x = Math.max(0, Math.min(newX, WORLD_WIDTH));
+            this.y = Math.max(0, Math.min(newY, WORLD_HEIGHT));
+            if (this.onBoat) { this.onBoat.x = this.x; this.onBoat.y = this.y; }
+        }
+
+        mouse.worldX = mouse.x + camera.x; mouse.worldY = mouse.y + camera.y;
+        this.angle = Math.atan2(mouse.worldY - this.y, mouse.worldX - this.x);
+
+        if (mouse.isDown && this.cd.m1 <= 0 && document.querySelectorAll('.modal[style="display: block;"]').length === 0) this.useM1();
+        
+        ['z', 'x', 'c'].forEach((key, idx) => {
+            if (keys[key] && !handled[key]) {
+                handled[key] = true; const ability = this.getActiveAbility();
+                if(ability && ability.skills[idx]) {
+                    const skill = ability.skills[idx];
+                    if (this.getMData().level >= skill.req && this.cd[key] <= 0) this.useSkill(skill, key);
+                    else if (this.cd[key] > 0) notify("Skill on Cooldown!", "#eab308");
+                    else notify(`Requires Mastery ${skill.req}`, "#ef4444");
+                }
+            }
+            if (!keys[key]) handled[key] = false;
+        });
+
+        // Broadcast player state to network
+        broadcastPlayerState();
+    }
+
+    useM1() {
+        const ability = this.getActiveAbility(); if(!ability) return;
+        this.cd.m1 = 0.35; const dmg = this.calculateDamage(1.0); 
+        
+        if (ability.type === 'melee' || ability.id === 'LIGHT' || ability.id === 'DRAGON') {
+            const range = 90; const spread = Math.PI / 1.5;
+            particles.push(new Particle(this.x + Math.cos(this.angle)*range*0.8, this.y + Math.sin(this.angle)*range*0.8, this.auraActive ? '#8b5cf6' : ability.color, this.angle, 0, 0.15, 30, false, 'arc'));
+            enemies.forEach(enemy => {
+                if (dist(this.x, this.y, enemy.x, enemy.y) < range + enemy.radius) {
+                    let angleDiff = Math.abs(this.angle - Math.atan2(enemy.y - this.y, enemy.x - this.x));
+                    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+                    if (angleDiff < spread / 2) { enemy.takeDamage(dmg, ability.id); enemy.vx = Math.cos(this.angle) * 400; enemy.vy = Math.sin(this.angle) * 400; }
+                }
+            });
+        } else projectiles.push(new Projectile(this.x, this.y, this.angle, {speed: 1000, range: 500, width: 12, type: 'projectile', effect:'none'}, dmg, true, ability.id));
+    }
+
+    useSkill(skill, keyID) {
+        const ability = this.getActiveAbility(); this.cd[keyID] = skill.cd; const dmg = this.calculateDamage(skill.dmgMult);
+        if (skill.type === 'projectile' || skill.type === 'projectile_aoe') projectiles.push(new Projectile(this.x, this.y, this.angle, skill, dmg, true, ability.id));
+        else if (skill.type === 'multi_projectile') { for(let i=0; i<skill.count; i++) projectiles.push(new Projectile(this.x, this.y, this.angle + (Math.random()-0.5)*skill.spread, skill, dmg, true, ability.id)); }
+        else if (skill.type === 'aoe') {
+            particles.push(new Particle(this.x, this.y, ability.color, 0, 0, 0.4, skill.radius, true));
+            for(let i=0; i<15; i++) particles.push(new Particle(this.x, this.y, ability.color, Math.random()*Math.PI*2, Math.random()*500+200, 0.4, 5));
+            enemies.forEach(enemy => { if (dist(this.x, this.y, enemy.x, enemy.y) < skill.radius) { enemy.takeDamage(dmg, ability.id); enemy.vx = (enemy.x - this.x) * (ability.id==='GRAVITY'?6:2.5); enemy.vy = (enemy.y - this.y) * (ability.id==='GRAVITY'?6:2.5); if(skill.effect === 'freeze') enemy.frozenTimer = 3; } });
+        }
+        else if (skill.type === 'aoe_cursor') {
+            let castX = mouse.worldX; let castY = mouse.worldY;
+            if (dist(this.x, this.y, castX, castY) > skill.castRange) { castX = this.x + Math.cos(this.angle)*skill.castRange; castY = this.y + Math.sin(this.angle)*skill.castRange; }
+            setTimeout(() => {
+                particles.push(new Particle(castX, castY, ability.color, 0, 0, 0.5, skill.radius, true));
+                for(let i=0; i<40; i++) particles.push(new Particle(castX, castY, '#f97316', -Math.PI/2+(Math.random()-0.5), Math.random()*500+200, 0.6, 6));
+                enemies.forEach(enemy => { if (dist(castX, castY, enemy.x, enemy.y) < skill.radius) { enemy.takeDamage(dmg, ability.id); if(skill.effect === 'burn') enemy.burnTimer = 3; } });
+            }, 400);
+            particles.push(new Particle(castX, castY, ability.color, 0, 0, 0.4, skill.radius/2, true));
+        }
+        else if (skill.type === 'dash' || skill.type === 'dash_damage') {
+            this.dashTimer = 0.25; this.dashVector = { x: Math.cos(this.angle)*skill.speed, y: Math.sin(this.angle)*skill.speed };
+            if (skill.type === 'dash_damage') { const dashInterval = setInterval(() => { if(this.dashTimer <= 0) clearInterval(dashInterval); enemies.forEach(enemy => { if (dist(this.x, this.y, enemy.x, enemy.y) < skill.radius) { enemy.takeDamage(dmg * 0.6, ability.id); if(skill.effect === 'burn') enemy.burnTimer = 2; } }); }, 80); }
+        }
+        updateUI(); 
+    }
+
+    takeDamage(amount) { if(this.auraActive) amount *= 0.6; this.health -= amount; if (this.health <= 0) { this.health = 0; this.die(); } updateUI(); }
+    die() {
+        notify("You Died! Respawning...", "#ef4444"); this.health = this.getMaxHealth(); this.x = islands[0].x; this.y = islands[0].y;
+        if(this.beli > 0) this.beli = Math.floor(this.beli * 0.9);
+        if(this.onBoat) { this.onBoat.inUse = false; this.onBoat = null; }
+        updateUI(); window.saveGameManual();
+    }
+    addExp(amount) {
+        this.exp += amount;
+        while (this.exp >= this.expReq) {
+            this.exp -= this.expReq; this.level++; this.expReq = Math.floor(this.expReq * 1.35); this.statPoints += 3; this.health = this.getMaxHealth();
+            notify(`LEVEL UP! You are now Lv. ${this.level}`, "#fef08a"); notify(`+3 Stat Points!`, "#38bdf8");
+            for(let i=0; i<40; i++) particles.push(new Particle(this.x, this.y, '#fef08a', Math.random()*Math.PI*2, Math.random()*400+150, 1.5, 5));
+            window.saveGameManual(); 
+        }
+        updateUI();
+    }
+    addActiveExp(amount) {
+        const mData = this.getMData(); mData.exp += amount; let req = getMasteryReq(mData.level);
+        while (mData.exp >= req) {
+            mData.exp -= req; mData.level++; notify(`${this.getActiveAbility().name} Mastery Lv. ${mData.level}!`, this.getActiveAbility().color);
+            req = getMasteryReq(mData.level); this.getActiveAbility().skills.forEach(s => { if(mData.level === s.req) notify(`Unlocked Skill: ${s.name}!`, "#4ade80"); });
+            window.saveGameManual();
+        }
+        buildSkillBar(); updateUI();
+    }
+    draw(ctx) {
+        ctx.save(); ctx.translate(this.x, this.y); 
+        
+        ctx.save();
+        ctx.fillStyle = '#fff'; 
+        ctx.font = '900 14px Nunito'; 
+        ctx.textAlign = 'center'; 
+        ctx.shadowColor = '#000'; ctx.shadowBlur = 4; 
+        ctx.fillText(this.name || "Player", 0, -this.radius - 15); 
+        ctx.shadowBlur = 0;
+        ctx.restore();
+
+        ctx.rotate(this.angle);
+        
+        if (this.auraActive) { 
+            ctx.beginPath(); ctx.arc(0, 0, this.radius + 8 + Math.sin(Date.now()/100)*2, 0, Math.PI * 2); 
+            ctx.fillStyle = '#8b5cf6'; ctx.globalAlpha = 0.5; ctx.fill(); ctx.globalAlpha = 1.0; 
+        }
+        
+        const ability = this.getActiveAbility();
+        if (ability && ability.type === 'fruit') { 
+            ctx.beginPath(); ctx.arc(0, 0, this.radius + 6 + Math.sin(Date.now() / 150) * 4, 0, Math.PI * 2); 
+            ctx.fillStyle = ability.color; ctx.globalAlpha = 0.35; ctx.fill(); ctx.globalAlpha = 1.0; 
+        }
+        
+        ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+        if (this.auraActive) { ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#c4b5fd'; ctx.lineWidth = 3; } 
+        else { ctx.fillStyle = '#fcd34d'; ctx.strokeStyle = '#78350f'; ctx.lineWidth = 2.5; }
+        ctx.fill(); ctx.stroke();
+        
+        ctx.beginPath(); ctx.arc(this.radius + 2, 12, 8, 0, Math.PI*2); ctx.arc(this.radius + 2, -12, 8, 0, Math.PI*2);
+        if (this.auraActive) { ctx.fillStyle = '#0f172a'; ctx.strokeStyle='#c4b5fd'; } else { ctx.fillStyle = '#fcd34d'; ctx.strokeStyle='#78350f'; }
+        ctx.fill(); ctx.stroke(); 
+        ctx.restore();
+    }
+}
+
+class Camera { constructor() { this.x = 0; this.y = 0; } update(tX, tY) { this.x += (tX - canvas.width/2 - this.x)*0.15; this.y += (tY - canvas.height/2 - this.y)*0.15; this.x = Math.max(-2000, Math.min(this.x, WORLD_WIDTH+2000-canvas.width)); this.y = Math.max(-2000, Math.min(this.y, WORLD_HEIGHT+2000-canvas.height)); } }
+
+class Particle { 
+    constructor(x,y,c,a,s,l,sz,r=false, shape='circle'){this.x=x;this.y=y;this.c=c;this.vx=Math.cos(a)*s;this.vy=Math.sin(a)*s;this.l=l;this.ml=l;this.sz=sz;this.r=r; this.shape=shape; this.angle=a;} 
+    update(dt){this.x+=this.vx*dt;this.y+=this.vy*dt;this.l-=dt;} 
+    draw(ctx){
+        ctx.save();ctx.globalAlpha=Math.max(0,this.l/this.ml);
+        ctx.beginPath();
+        if(this.shape === 'arc') {
+            ctx.arc(this.x, this.y, this.sz, this.angle - Math.PI/3, this.angle + Math.PI/3);
+            ctx.strokeStyle = this.c; ctx.lineWidth = 8 * (this.l/this.ml); ctx.stroke();
+        } else if(this.r){
+            ctx.arc(this.x,this.y,this.sz*(1-this.l/this.ml),0,Math.PI*2);
+            ctx.strokeStyle=this.c;ctx.lineWidth=6;ctx.stroke();
+        }else{
+            ctx.arc(this.x,this.y,this.sz,0,Math.PI*2);ctx.fillStyle=this.c;ctx.fill();
+        } 
+        ctx.restore();
+    } 
+}
+
+class TextParticle { 
+    constructor(x,y,t,c){this.x=x;this.y=y;this.t=t;this.c=c;this.l=1.2;this.vy=-50;} 
+    update(dt){this.y+=this.vy*dt;this.l-=dt;} 
+    draw(ctx){
+        ctx.save();ctx.globalAlpha=Math.max(0,this.l/1.2);
+        ctx.fillStyle=this.c;ctx.font='900 20px Nunito';ctx.textAlign='center';
+        ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4; ctx.shadowOffsetX=1; ctx.shadowOffsetY=1;
+        ctx.fillText(this.t,this.x,this.y);ctx.restore();
+    } 
+}
+
+class Enemy {
+    constructor(x, y, level, island) {
+        this.x = x; this.y = y; this.spawnX = x; this.spawnY = y; this.island = island; this.radius = 20;
+        this.level = level; this.maxHealth = 50 + (level * 30); this.health = this.maxHealth;
+        this.damage = 8 + (level * 5); this.speed = 120 + (Math.random() * 60);
+        this.vx = 0; this.vy = 0; this.state = 'idle'; this.stateTimer = 0; this.wanderAngle = 0; this.lastAttack = 0;
+        this.color = level > 40 ? '#6b21a8' : (level > 20 ? '#b91c1c' : '#ef4444');
+        this.frozenTimer = 0; this.burnTimer = 0; this.lastHitSource = null; 
+    }
+    update(dt) {
+        this.x += this.vx * dt; this.y += this.vy * dt; this.vx *= 0.85; this.vy *= 0.85;
+        if (this.frozenTimer > 0) { this.frozenTimer -= dt; return; }
+        if (this.burnTimer > 0) { this.burnTimer -= dt; if (Math.random() < 0.15) { this.takeDamage(player.level * 2.5, this.lastHitSource, false); particles.push(new Particle(this.x, this.y, '#f97316', -Math.PI/2+(Math.random()-0.5), 80, 0.5, 4)); } }
+
+        const dToPlayer = dist(this.x, this.y, player.x, player.y); const dToSpawn = dist(this.x, this.y, this.spawnX, this.spawnY);
+        this.stateTimer -= dt;
+        if (this.state === 'idle') {
+            if (dToPlayer < 300 && player.health > 0) this.state = 'chase';
+            else { if (this.stateTimer <= 0) { this.wanderAngle = Math.random() * Math.PI * 2; this.stateTimer = 1 + Math.random() * 2; } this.x += Math.cos(this.wanderAngle)*(this.speed*0.4)*dt; this.y += Math.sin(this.wanderAngle)*(this.speed*0.4)*dt; if (dToSpawn > 200) this.state = 'return'; }
+        } else if (this.state === 'chase') {
+            if (dToPlayer > 600 || dToSpawn > 500 || !checkOnIsland(this.x, this.y)) this.state = 'return';
+            else if (dToPlayer > this.radius + player.radius) { const angle = Math.atan2(player.y - this.y, player.x - this.x); this.x += Math.cos(angle)*this.speed*dt; this.y += Math.sin(angle)*this.speed*dt; } else { if (performance.now() - this.lastAttack > 1200) { player.takeDamage(this.damage); this.lastAttack = performance.now(); } }
+        } else if (this.state === 'return') { const angle = Math.atan2(this.spawnY - this.y, this.spawnX - this.x); this.x += Math.cos(angle)*this.speed*dt; this.y += Math.sin(angle)*this.speed*dt; if (dToSpawn < 30) { this.state = 'idle'; this.stateTimer = 2; } }
+    }
+    takeDamage(amount, source, showText = true) {
+        this.health -= amount; this.lastHitSource = source; 
+        if (showText) spawnTextParticle(this.x + (Math.random()-0.5)*20, this.y - 15 - Math.random()*10, Math.floor(amount), source && ABILITIES[source] ? ABILITIES[source].color : '#fff');
+        this.flashTimer = 0.1; if (this.health <= 0) this.die(); else this.state = 'chase';
+    }
+    die() {
+        const expGain = 30 + (this.level * 20); const beliGain = 25 + (this.level * 12) + Math.floor(Math.random()*30);
+        player.addExp(expGain); player.beli += beliGain; player.addActiveExp(15 + this.level); updateUI();
+        spawnTextParticle(this.x, this.y - 40, `+${expGain} XP`, '#38bdf8'); spawnTextParticle(this.x, this.y - 60, `+${beliGain} $`, '#4ade80');
+        for(let i=0; i<20; i++) particles.push(new Particle(this.x, this.y, this.color, Math.random()*Math.PI*2, Math.random()*250+50, 0.6, 5));
+        const idx = enemies.indexOf(this); if (idx > -1) enemies.splice(idx, 1);
+    }
+    draw(ctx) {
+        ctx.save(); ctx.translate(this.x, this.y);
+        if (this.frozenTimer > 0) { ctx.beginPath(); ctx.arc(0, 0, this.radius + 6, 0, Math.PI * 2); ctx.fillStyle = 'rgba(168, 85, 247, 0.6)'; ctx.fill(); }
+        ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+        if (this.flashTimer > 0) { ctx.fillStyle = '#ffffff'; this.flashTimer -= 0.016; } else { ctx.fillStyle = this.color; }
+        ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#0f172a'; ctx.stroke();
+        
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath(); ctx.arc(-6, -4, 3, 0, Math.PI*2); ctx.fill(); 
+        ctx.beginPath(); ctx.arc(6, -4, 3, 0, Math.PI*2); ctx.fill(); 
+        ctx.beginPath(); ctx.arc(0, 4, 4, 0, Math.PI, true); ctx.stroke(); 
+
+        ctx.fillStyle = '#fff'; ctx.font = '900 12px Nunito'; ctx.textAlign = 'center'; 
+        ctx.shadowColor = '#000'; ctx.shadowBlur = 3; ctx.fillText(`Lv.${this.level}`, 0, -this.radius - 8); ctx.shadowBlur=0;
+        
+        const hpPct = Math.max(0, this.health / this.maxHealth); 
+        ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(-18, -this.radius - 20, 36, 5); 
+        ctx.fillStyle = '#ef4444'; ctx.fillRect(-18, -this.radius - 20, 36 * hpPct, 5); 
+        ctx.restore();
+    }
+}
+
+class Projectile {
+    constructor(x, y, angle, skill, damage, isPlayer, source) { this.x = x; this.y = y; this.startX = x; this.startY = y; this.angle = angle; this.skill = skill; this.damage = damage; this.isPlayer = isPlayer; this.source = source; this.active = true; this.piercedEnemies = new Set(); this.color = ABILITIES[source]?.color || '#fff'; }
+    update(dt) {
+        this.x += Math.cos(this.angle) * this.skill.speed * dt; this.y += Math.sin(this.angle) * this.skill.speed * dt;
+        if (Math.random() < 0.7) particles.push(new Particle(this.x, this.y, this.color, this.angle + Math.PI + (Math.random()-0.5), this.skill.speed*0.15, 0.25, this.skill.width*0.6));
+        if (dist(this.startX, this.startY, this.x, this.y) > this.skill.range) { this.explode(); return; }
+        if (this.isPlayer) { for (let enemy of enemies) { if (!this.piercedEnemies.has(enemy) && dist(this.x, this.y, enemy.x, enemy.y) < this.skill.width + enemy.radius) { if (this.skill.type === 'projectile_aoe') { this.explode(); return; } enemy.takeDamage(this.damage, this.source); if(this.skill.effect === 'burn') enemy.burnTimer = 3; if (this.skill.pierce) this.piercedEnemies.add(enemy); else { this.explode(); return; } } } }
+    }
+    explode() {
+        this.active = false;
+        if (this.skill.type === 'projectile_aoe') { particles.push(new Particle(this.x, this.y, this.color, 0, 0, 0.5, this.skill.radius, true)); enemies.forEach(enemy => { if (dist(this.x, this.y, enemy.x, enemy.y) < this.skill.radius) { enemy.takeDamage(this.damage, this.source); if(this.skill.effect === 'burn') enemy.burnTimer = 3; } }); } else { for(let i=0; i<8; i++) particles.push(new Particle(this.x, this.y, this.color, Math.random()*Math.PI*2, Math.random()*200+80, 0.3, 4)); }
+    }
+    draw(ctx) { ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle); ctx.beginPath(); ctx.arc(0, 0, this.skill.width, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.shadowBlur = 20; ctx.shadowColor = this.color; ctx.fill(); ctx.restore(); }
+}
+
+class Island {
+    constructor(x, y, radius, name, recLevel, color = '#d4d4d8') {
+        this.x=x;this.y=y;this.radius=radius;this.name=name;this.recLevel=recLevel;this.color=color;this.decorations=[];
+        for(let i=0; i<Math.floor(radius*radius/3000); i++) { const a=Math.random()*Math.PI*2, d=Math.random()*radius*0.85; this.decorations.push({x:this.x+Math.cos(a)*d, y:this.y+Math.sin(a)*d, type:Math.random()>0.75?'rock':'tree', size:25+Math.random()*25}); }
+    }
+    draw(ctx) {
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius + 15, 0, Math.PI * 2); ctx.fillStyle = '#fde68a'; ctx.fill();
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill();
+        
+        this.decorations.forEach(dec => { 
+            ctx.save(); ctx.translate(dec.x, dec.y); 
+            if (dec.type === 'tree') { 
+                ctx.fillStyle='#78350f'; ctx.fillRect(-dec.size/4,0,dec.size/2,dec.size); 
+                ctx.beginPath(); ctx.arc(0,0,dec.size,0,Math.PI*2); ctx.fillStyle='#166534'; ctx.fill(); 
+                ctx.beginPath(); ctx.arc(-dec.size/3,-dec.size/3,dec.size*0.7,0,Math.PI*2); ctx.fillStyle='#15803d'; ctx.fill(); 
+            } else { 
+                ctx.beginPath(); ctx.arc(0,dec.size/2,dec.size*0.7,0,Math.PI*2); ctx.fillStyle='#52525b'; ctx.fill(); 
+                ctx.beginPath(); ctx.arc(-dec.size/4,dec.size/2-dec.size/4,dec.size*0.4,0,Math.PI*2); ctx.fillStyle='#71717a'; ctx.fill(); 
+            } 
+            ctx.restore(); 
+        });
+        
+        ctx.fillStyle = 'rgba(15,23,42,0.7)'; ctx.roundRect(this.x-100, this.y-this.radius-60, 200, 45, 12); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '900 20px Nunito'; ctx.textAlign = 'center'; ctx.fillText(this.name, this.x, this.y-this.radius-35);
+        ctx.fillStyle = '#fde047'; ctx.font = 'bold 13px Nunito'; ctx.fillText(`Req. Lv. ${this.recLevel}`, this.x, this.y-this.radius-20);
+    }
+}
+
+class NPC { 
+    constructor(island, type='Merchant'){
+        this.type = type; this.island = island; this.radius = 20;
+        if(type === 'Merchant') { this.x = island.x; this.y = island.y; }
+        else if (type === 'Boat Dealer') {
+            const angle = Math.random() * Math.PI * 2; this.x = island.x + Math.cos(angle) * (island.radius - 40); this.y = island.y + Math.sin(angle) * (island.radius - 40);
+            this.boatSpawnX = island.x + Math.cos(angle) * (island.radius + 80); this.boatSpawnY = island.y + Math.sin(angle) * (island.radius + 80);
+        }
+    } 
+    draw(ctx){
+        ctx.save(); ctx.translate(this.x,this.y); 
+        ctx.beginPath(); ctx.ellipse(0,this.radius+2,this.radius,this.radius/2,0,0,Math.PI*2); ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.fill();
+        ctx.beginPath(); ctx.arc(0,0,this.radius,0,Math.PI*2); ctx.fillStyle = this.type === 'Merchant' ? '#22c55e' : '#3b82f6'; ctx.fill(); 
+        ctx.lineWidth=3; ctx.strokeStyle = '#0f172a'; ctx.stroke(); 
+        
+        ctx.fillStyle = '#fcd34d'; ctx.beginPath(); ctx.arc(0, -5, this.radius-4, Math.PI, 0); ctx.fill();
+
+        ctx.fillStyle='#fff'; ctx.font='900 14px Nunito'; ctx.textAlign='center'; 
+        ctx.shadowColor='#000'; ctx.shadowBlur=3;
+        ctx.fillText(this.type,0,-this.radius-12+Math.sin(Date.now()/250)*4); 
+        ctx.shadowBlur=0; ctx.restore();
+    } 
+}
+
+class Boat { 
+    constructor(x, y) { this.x = x; this.y = y; this.radius = 50; this.inUse = false; } 
+    draw(ctx) { 
+        ctx.save(); ctx.translate(this.x, this.y); 
+        if(this.inUse) ctx.rotate(player.angle); else ctx.rotate(Math.sin(Date.now()/1200)*0.15); 
+        
+        if(this.inUse && Math.hypot(player.dashVector.x || keys.w || keys.a || joystickVector.x, 0) !== 0) {
+            ctx.beginPath(); ctx.arc(-40, 0, 20 + Math.random()*10, 0, Math.PI*2); ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.fill();
+        }
+
+        ctx.fillStyle = '#78350f'; ctx.beginPath(); ctx.ellipse(0, 0, 55, 28, 0, 0, Math.PI*2); ctx.fill(); 
+        ctx.lineWidth=4; ctx.strokeStyle='#451a03'; ctx.stroke(); 
+        ctx.fillStyle = '#92400e'; ctx.beginPath(); ctx.ellipse(0, 0, 45, 20, 0, 0, Math.PI*2); ctx.fill(); 
+        
+        ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(10, 0, 8, 0, Math.PI*2); ctx.fill();
+        ctx.restore(); 
+    } 
+}
+
+class FruitItem { 
+    constructor(x, y, typeKey) { this.x = x; this.y = y; this.typeKey = typeKey; this.fruit = ABILITIES[typeKey]; this.radius = 18; this.sTime = performance.now(); } 
+    draw(ctx) { 
+        const ho = Math.sin((performance.now()-this.sTime)/300)*8; 
+        ctx.save(); ctx.translate(this.x, this.y+ho); 
+        
+        ctx.beginPath(); ctx.arc(0,0,this.radius*2.5,0,Math.PI*2); ctx.fillStyle=this.fruit.color; ctx.globalAlpha=0.4; ctx.fill(); ctx.globalAlpha=1.0; 
+        
+        ctx.fillStyle=this.fruit.color; ctx.fillRect(-this.radius,-this.radius,this.radius*2,this.radius*2); 
+        ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.strokeRect(-this.radius,-this.radius,this.radius*2,this.radius*2); 
+        
+        ctx.fillStyle='#fff'; ctx.font='20px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(this.fruit.icon,0,0); 
+        ctx.restore(); 
+    } 
+}
+
+const WORLD_WIDTH = 15000, WORLD_HEIGHT = 15000, TILE_SIZE = 120;
+let player, camera, islands = [], enemies = [], npcs = [], boats = [], projectiles = [], particles = [], textParticles = [], fruits = [], lastTime = 0;
+let nearbyInteractable = null;
+
+// Multiplayer Network Data
+let remotePlayers = {};
+let peer = null;
+let peerConnections = [];
+let roomCode = null;
+let isHost = false;
+
+function initGameState() {
+    player = new Player(7500, 7500); camera = new Camera();
+    islands.push(new Island(7500, 7500, 700, "Starter Island", 1, '#a3e635'));
+    islands.push(new Island(3500, 3500, 900, "Jungle", 15, '#65a30d'));
+    islands.push(new Island(11500, 3500, 1000, "Desert", 30, '#fde047'));
+    islands.push(new Island(3500, 11500, 1100, "Snow Village", 45, '#f8fafc'));
+    islands.push(new Island(11500, 11500, 1300, "Volcano", 60, '#3f3f46'));
+
+    player.x = islands[0].x; player.y = islands[0].y + 250;
+    islands.forEach(i => { npcs.push(new NPC(i, 'Merchant')); npcs.push(new NPC(i, 'Boat Dealer')); });
+    spawnEnemies(); window.setActiveSlot(1);
+    
+    setInterval(spawnRandomFruit, 40000); setInterval(spawnEnemies, 8000); setInterval(updateSkillUI, 50);
+}
+
+// Global UI Interactivity Handlers
+window.setActiveSlot = function(slot) {
+    if (slot === 2 && !player.equippedFruit) return;
+    player.activeSlot = slot;
+    document.getElementById('slot-1').className = `hotbar-slot ${slot===1?'active':''}`;
+    document.getElementById('slot-2').className = `hotbar-slot ${slot===2?'active':''}`;
+    buildSkillBar(); updateUI();
+}
+
+window.upgradeStat = function(stat) { if (player.statPoints > 0) { player.statPoints--; player.stats[stat]++; if(stat === 'defense') player.health += 25; updateUI(); } }
+
+window.buyItem = function(type, cost, extraData=null) {
+    if (player.beli >= cost) {
+        if (type === 'heal' && player.health >= player.getMaxHealth()) return notify("Already max health!");
+        if (type === 'aura' && player.hasAura) return notify("You already own Aura!");
+        player.beli -= cost;
+        if (type === 'heal') { player.health = player.getMaxHealth(); notify("Fully Healed!", "#4ade80"); }
+        else if (type === 'aura') { player.hasAura = true; notify("Learned Aura (Haki)! Press J to use.", "#a855f7"); document.getElementById('btn-aura').classList.remove('hidden'); }
+        else if (type === 'boat') { boats.push(new Boat(extraData.x, extraData.y)); notify("Spawned a Sloop nearby!", "#3b82f6"); window.toggleModal('shop-modal'); }
+        else if (type.startsWith('style_')) { const style = type.split('_')[1] + (type.split('_')[2]?`_${type.split('_')[2]}`:''); player.equippedMelee = style; window.setActiveSlot(1); notify(`Learned ${ABILITIES[style].name}!`, '#f97316'); }
+        else if (type === 'random_fruit') { const rand = FRUIT_SPAWN_CHANCE[Math.floor(Math.random() * FRUIT_SPAWN_CHANCE.length)]; player.inventory.push(rand); notify(`Obtained ${ABILITIES[rand].name} Fruit! Stored in Menu.`, ABILITIES[rand].color); }
+        updateUI(); window.saveGameManual();
+    } else notify("Not enough Beli!", "#ef4444");
+}
+
+window.renderInventory = function() {
+    const grid = document.getElementById('inv-grid'); grid.innerHTML = '';
+    const details = document.getElementById('inv-details'); details.classList.add('hidden');
+    if(player.inventory.length === 0) { grid.innerHTML = "<div class='col-span-4 text-center text-slate-500 font-bold p-4'>Bag is empty</div>"; return; }
+    player.inventory.forEach((fruitId, idx) => {
+        const fruit = ABILITIES[fruitId]; const item = document.createElement('div'); item.className = 'inv-item';
+        item.innerHTML = `<div class="text-3xl drop-shadow-md">${fruit.icon}</div><div class="text-xs mt-2 text-slate-200 font-black">${fruit.name}</div>`;
+        item.onclick = () => {
+            details.classList.remove('hidden'); document.getElementById('inv-det-icon').innerText = fruit.icon;
+            document.getElementById('inv-det-name').innerText = fruit.name; document.getElementById('inv-det-name').style.color = fruit.color;
+            document.getElementById('inv-eat-btn').onclick = () => {
+                player.equippedFruit = fruitId; player.inventory.splice(idx, 1); notify(`Ate the ${fruit.name} Fruit!`, fruit.color);
+                window.setActiveSlot(2); window.renderInventory(); window.saveGameManual();
+            };
+        }; grid.appendChild(item);
+    });
+}
+
+window.handleInteract = function(type) {
+    if(type === 'shop') {
+        const npc = nearbyInteractable;
+        document.getElementById('shop-title').innerText = npc.type.toUpperCase(); document.getElementById('shop-title').style.color = npc.type === 'Merchant' ? '#4ade80' : '#3b82f6';
+        const content = document.getElementById('shop-content');
+        if (npc.type === 'Merchant') {
+            content.innerHTML = `<div class="bg-slate-800/80 p-3 rounded-xl flex justify-between items-center border border-slate-700"><div><div class="font-black text-emerald-400">Full Heal</div></div><button onclick="window.buyItem('heal', 50)" class="bg-amber-500 hover:bg-amber-400 text-slate-900 font-black py-1.5 px-4 rounded-lg text-sm shadow-md transition-transform active:scale-95">50 $</button></div>
+                <div class="bg-slate-800/80 p-3 rounded-xl flex justify-between items-center border border-slate-700"><div><div class="font-black text-purple-400" style="color:#a855f7">Aura (Haki)</div><div class="text-xs text-slate-400 font-bold">Boosts Dmg/Def</div></div><button onclick="window.buyItem('aura', 5000)" class="bg-amber-500 hover:bg-amber-400 text-slate-900 font-black py-1.5 px-4 rounded-lg text-sm shadow-md transition-transform active:scale-95">5000 $</button></div>
+                <div class="bg-slate-800/80 p-3 rounded-xl flex justify-between items-center border border-slate-700"><div><div class="font-black text-rose-400">Dark Step (Melee)</div><div class="text-xs text-slate-400 font-bold">Replaces Combat</div></div><button onclick="window.buyItem('style_DARK_STEP', 1500)" class="bg-amber-500 hover:bg-amber-400 text-slate-900 font-black py-1.5 px-4 rounded-lg text-sm shadow-md transition-transform active:scale-95">1500 $</button></div>
+                <div class="bg-slate-800/80 p-3 rounded-xl flex justify-between items-center border border-slate-700"><div><div class="font-black text-fuchsia-400">Random Fruit</div><div class="text-xs text-slate-400 font-bold">Goes to Inventory</div></div><button onclick="window.buyItem('random_fruit', 3000)" class="bg-amber-500 hover:bg-amber-400 text-slate-900 font-black py-1.5 px-4 rounded-lg text-sm shadow-md transition-transform active:scale-95">3000 $</button></div>`;
+        } else {
+            content.innerHTML = `<div class="bg-slate-800/80 p-3 rounded-xl flex justify-between items-center border border-slate-700"><div><div class="font-black text-white">Sloop (Boat)</div><div class="text-xs text-slate-400 font-bold">Fast water travel</div></div><button onclick="window.buyItem('boat', 400, {x:${npc.boatSpawnX}, y:${npc.boatSpawnY}})" class="bg-amber-500 hover:bg-amber-400 text-slate-900 font-black py-1.5 px-4 rounded-lg text-sm shadow-md transition-transform active:scale-95">400 $</button></div>`;
+        } window.toggleModal('shop-modal');
+    }
+    if(type === 'fruit' && nearbyInteractable && nearbyInteractable instanceof FruitItem) { player.inventory.push(nearbyInteractable.typeKey); notify(`Stored ${nearbyInteractable.fruit.name} Fruit in Menu!`, nearbyInteractable.fruit.color); const idx = fruits.indexOf(nearbyInteractable); if (idx > -1) fruits.splice(idx, 1); nearbyInteractable = null; window.saveGameManual(); }
+    if(type === 'boat') { if(player.onBoat) { player.onBoat.inUse = false; player.onBoat = null; } else if (nearbyInteractable && nearbyInteractable instanceof Boat && !nearbyInteractable.inUse) { player.onBoat = nearbyInteractable; nearbyInteractable.inUse = true; } }
+    if(type === 'aura' && player.hasAura) { player.auraActive = !player.auraActive; if(player.auraActive) { notify("Aura Activated!", "#a855f7"); document.getElementById('btn-aura').style.borderColor = '#fff';} else { notify("Aura Deactivated", "#cbd5e1"); document.getElementById('btn-aura').style.borderColor = 'rgba(139, 92, 246, 0.6)';} }
+}
+
+function buildSkillBar() {
+    const bar = document.getElementById('skill-bar'); bar.innerHTML = ''; const ability = player.getActiveAbility(); if(!ability) return; const mData = player.getMData();
+    ability.skills.forEach(skill => {
+        const div = document.createElement('div'); div.className = 'skill-slot';
+        let html = `<div class="skill-key">${skill.key}</div>`;
+        if (mData.level >= skill.req) html += `<span class="skill-name">${skill.name}</span><div class="skill-cd" id="cd-${skill.id}"></div>`;
+        else html += `<div class="skill-locked">🔒<div>Mas.${skill.req}</div></div>`;
+        div.innerHTML = html; bar.appendChild(div);
+    });
+}
+
+function updateSkillUI() { const ability = player.getActiveAbility(); if(!ability) return; ability.skills.forEach(skill => { const cdEl = document.getElementById(`cd-${skill.id}`); if (cdEl) cdEl.style.height = player.cd[skill.id] > 0 ? `${(player.cd[skill.id] / skill.cd) * 100}%` : `0%`; }); }
+
+function updateUI() {
+    document.getElementById('ui-level').innerText = player.level; document.getElementById('ui-beli').innerText = player.beli;
+    document.getElementById('ui-hp-text').innerText = `${Math.floor(player.health)} / ${player.getMaxHealth()}`; document.getElementById('health-bar').style.width = `${(player.health / player.getMaxHealth()) * 100}%`;
+    document.getElementById('ui-exp-text').innerText = `${player.exp} / ${player.expReq}`; document.getElementById('exp-bar').style.width = `${(player.exp / player.expReq) * 100}%`;
+    document.getElementById('hotbar-1-name').innerText = ABILITIES[player.equippedMelee].name; document.getElementById('hotbar-2-name').innerText = player.equippedFruit ? ABILITIES[player.equippedFruit].name : 'None';
+    const ability = player.getActiveAbility();
+    if (ability) {
+        document.getElementById('ui-active-name').innerText = ability.name; document.getElementById('ui-active-name').style.color = ability.color; document.getElementById('ui-active-icon').innerText = ability.icon;
+        const mData = player.getMData(); document.getElementById('ui-active-level').innerText = mData.level; document.getElementById('mastery-bar').style.width = `${Math.min(100, (mData.exp / getMasteryReq(mData.level)) * 100)}%`;
+    }
+    document.getElementById('ui-stat-points').innerText = player.statPoints; document.getElementById('ui-stat-melee').innerText = player.stats.melee; document.getElementById('ui-stat-defense').innerText = player.stats.defense; document.getElementById('ui-stat-fruit').innerText = player.stats.fruit;
+    document.querySelectorAll('.stat-btn').forEach(b => b.disabled = player.statPoints === 0);
+}
+
+function checkOnIsland(x, y) { for (let island of islands) if (dist(x, y, island.x, island.y) <= island.radius + 15) return true; return false; }
+
+function spawnEnemies() {
+    islands.forEach(island => {
+        const currentCount = enemies.filter(e => e.island === island).length; const targetCount = Math.floor(island.radius / 180); 
+        for (let i = currentCount; i < targetCount; i++) {
+            const angle = Math.random() * Math.PI * 2, d = 180 + Math.random() * (island.radius * 0.9 - 180); 
+            enemies.push(new Enemy(island.x + Math.cos(angle)*d, island.y + Math.sin(angle)*d, Math.max(1, island.recLevel + Math.floor(Math.random()*6)), island));
+        }
+    });
+}
+function spawnRandomFruit() { if (fruits.length > 6) return; const island = islands[Math.floor(Math.random() * islands.length)]; const angle = Math.random() * Math.PI * 2, d = Math.random() * island.radius * 0.8; fruits.push(new FruitItem(island.x + Math.cos(angle)*d, island.y + Math.sin(angle)*d, FRUIT_SPAWN_CHANCE[Math.floor(Math.random() * FRUIT_SPAWN_CHANCE.length)])); notify("A rare Fruit spawned somewhere in the world!", "#a3e635"); }
+function spawnTextParticle(x, y, text, color) { textParticles.push(new TextParticle(x, y, text, color)); }
+
+function updateGameLogic(dt) {
+    if(!gameLoaded) return;
+    player.update(dt); camera.update(player.x, player.y);
+    nearbyInteractable = null; let hintToShow = null;
+    let nearestNPC = null; let minDist = Infinity; npcs.forEach(npc => { let d = dist(player.x, player.y, npc.x, npc.y); if(d < 180 && d < minDist) { minDist = d; nearestNPC = npc; } });
+    if (nearestNPC) { nearbyInteractable = nearestNPC; hintToShow = 'shop'; }
+    fruits.forEach(f => { let d = dist(player.x, player.y, f.x, f.y); if(d < 100) { nearbyInteractable = f; hintToShow = 'fruit'; }});
+    let nearestBoat = null; let minB = Infinity; boats.forEach(b => { let d = dist(player.x, player.y, b.x, b.y); if(d < 120 && d < minB) { minB = d; nearestBoat = b; } });
+    if (nearestBoat || player.onBoat) { nearbyInteractable = player.onBoat || nearestBoat; hintToShow = 'boat'; }
+
+    document.getElementById('hint-shop').style.display = hintToShow === 'shop' ? 'block' : 'none';
+    document.getElementById('hint-fruit').style.display = hintToShow === 'fruit' ? 'block' : 'none';
+    document.getElementById('hint-boat').style.display = hintToShow === 'boat' ? 'block' : 'none';
+    document.getElementById('hint-aura').style.display = (player.hasAura && !hintToShow && !player.onBoat) ? 'block' : 'none';
+
+    if(hintToShow === 'shop' && keys.f && !handled.f) { handled.f = true; window.handleInteract('shop'); }
+    if(hintToShow === 'fruit' && keys.e && !handled.e) { handled.e = true; window.handleInteract('fruit'); }
+    if(hintToShow === 'boat' && keys.g && !handled.g) { handled.g = true; window.handleInteract('boat'); }
+    if(!keys.f) handled.f = false; if(!keys.e) handled.e = false; if(!keys.g) handled.g = false;
+    
+    document.getElementById('btn-boat').style.display = hintToShow === 'boat' ? 'flex' : 'none';
+    if(player.onBoat) document.getElementById('btn-boat').innerText = "DISMOUNT"; else document.getElementById('btn-boat').innerText = "DRIVE";
+
+    enemies.forEach(e => e.update(dt));
+    for (let i = projectiles.length - 1; i >= 0; i--) { projectiles[i].update(dt); if (!projectiles[i].active) projectiles.splice(i, 1); }
+    for (let i = particles.length - 1; i >= 0; i--) { particles[i].update(dt); if (particles[i].life <= 0) particles.splice(i, 1); }
+    for (let i = textParticles.length - 1; i >= 0; i--) { textParticles[i].update(dt); if (textParticles[i].life <= 0) textParticles.splice(i, 1); }
+}
+
+function drawCompass(ctx) {
+    let target = islands[0]; for(let i of islands) { if (player.level >= i.recLevel && i.recLevel >= target.recLevel) target = i; }
+    const cx = canvas.width / 2; const cy = 50; const angle = Math.atan2(target.y - player.y, target.x - player.x);
+    
+    ctx.save(); ctx.translate(cx, cy); 
+    ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2); ctx.fillStyle = 'rgba(15,23,42,0.8)'; ctx.fill(); 
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 3; ctx.stroke(); 
+    
+    ctx.rotate(angle); 
+    ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-12, 10); ctx.lineTo(-8, 0); ctx.lineTo(-12, -10); ctx.closePath(); 
+    ctx.fillStyle = '#ef4444'; ctx.fill(); 
+    ctx.restore();
+    
+    ctx.fillStyle = '#fff'; ctx.font = '900 13px Nunito'; ctx.textAlign = 'center'; 
+    ctx.shadowColor = '#000'; ctx.shadowBlur = 5; 
+    ctx.fillText(`Target: ${target.name} (Lv.${target.recLevel}+)`, cx, cy + 50); 
+    ctx.shadowBlur = 0;
+}
+
+function drawRemotePlayers(ctx) {
+    for (let id in remotePlayers) {
+        const rp = remotePlayers[id];
+        ctx.save();
+        ctx.translate(rp.x, rp.y);
+
+        // Name and Level Tag
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = '900 14px Nunito';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#000'; ctx.shadowBlur = 4;
+        ctx.fillText(`${rp.name || 'Player'} (Lv.${rp.level || 1})`, 0, -35);
+        ctx.shadowBlur = 0;
+
+        // Health Bar
+        if (rp.health !== undefined && rp.maxHealth) {
+            const hpPct = Math.max(0, rp.health / rp.maxHealth);
+            ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(-20, -30, 40, 5);
+            ctx.fillStyle = '#ef4444'; ctx.fillRect(-20, -30, 40 * hpPct, 5);
+        }
+
+        ctx.rotate(rp.angle || 0);
+
+        // Body
+        ctx.beginPath(); ctx.arc(0, 0, 22, 0, Math.PI * 2);
+        ctx.fillStyle = rp.auraActive ? '#1e293b' : '#38bdf8';
+        ctx.strokeStyle = rp.auraActive ? '#c4b5fd' : '#0284c7';
+        ctx.lineWidth = 2.5; ctx.fill(); ctx.stroke();
+
+        // Hands
+        ctx.beginPath(); ctx.arc(24, 12, 8, 0, Math.PI*2); ctx.arc(24, -12, 8, 0, Math.PI*2);
+        ctx.fillStyle = rp.auraActive ? '#0f172a' : '#38bdf8';
+        ctx.fill(); ctx.stroke();
+
+        ctx.restore();
+    }
+}
+
+function drawGame() {
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, '#0ea5e9'); gradient.addColorStop(1, '#1e3a8a');
+    ctx.fillStyle = gradient; ctx.fillRect(0, 0, canvas.width, canvas.height); 
+    
+    ctx.save(); ctx.translate(-camera.x, -camera.y);
+    
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'; ctx.lineWidth = 2;
+    const sX = Math.floor(camera.x / TILE_SIZE) * TILE_SIZE, sY = Math.floor(camera.y / TILE_SIZE) * TILE_SIZE, t = Date.now() / 1500;
+    for (let x = sX - TILE_SIZE; x < camera.x + canvas.width + TILE_SIZE; x += TILE_SIZE * 2) { for (let y = sY - TILE_SIZE; y < camera.y + canvas.height + TILE_SIZE; y += TILE_SIZE * 2) { if (!checkOnIsland(x, y)) { ctx.beginPath(); ctx.arc(x + Math.sin(t + y/100)*15, y + Math.cos(t + x/100)*15, 25, 0, Math.PI/2); ctx.stroke(); } } }
+    
+    islands.forEach(i => { if (i.x + i.radius + 100 > camera.x && i.x - i.radius - 100 < camera.x + canvas.width && i.y + i.radius + 100 > camera.y && i.y - i.radius - 100 < camera.y + canvas.height) i.draw(ctx); });
+    npcs.forEach(n => n.draw(ctx)); fruits.forEach(f => f.draw(ctx)); boats.forEach(b => b.draw(ctx)); enemies.forEach(e => e.draw(ctx));
+    drawRemotePlayers(ctx);
+    player.draw(ctx); projectiles.forEach(p => p.draw(ctx)); particles.forEach(p => p.draw(ctx)); textParticles.forEach(p => p.draw(ctx));
+    ctx.restore();
+    
+    drawCompass(ctx);
+    
+    if (player.health < player.getMaxHealth() * 0.25) { ctx.fillStyle = `rgba(220, 38, 38, ${0.15 + Math.sin(Date.now() / 200) * 0.15})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+}
+
+function gameLoop(timestamp) {
+    if (!lastTime) lastTime = timestamp; const dt = Math.min((timestamp - lastTime) / 1000, 0.1); lastTime = timestamp;
+    updateGameLogic(dt); drawGame(); requestAnimationFrame(gameLoop);
+}
+
+/**
+ * LOCAL STORAGE SAVING SYSTEM
+ */
+let gameLoaded = false;
+initGameState(); 
+loadFromLocalStorage();
+
+window.handleLogin = function() {
+    const nameInput = document.getElementById('username-input').value.trim();
+    if (nameInput.length < 3) { alert("Please enter a name (min 3 chars)"); return; }
+    
+    player.name = nameInput;
+    window.saveGameManual();
+    window.startGame();
+}
+
+window.startGame = function() {
+    if(gameLoaded) return;
+    gameLoaded = true;
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('ui-layer').style.display = 'flex';
+    requestAnimationFrame(gameLoop);
+    setInterval(window.saveGameManual, 60000);
+}
+
+function getSaveDataObj() {
+    return {
+        name: player.name, level: player.level, exp: player.exp, expReq: player.expReq,
+        statPoints: player.statPoints, stats: player.stats,
+        health: player.health, beli: player.beli,
+        inventory: player.inventory,
+        equippedMelee: player.equippedMelee, equippedFruit: player.equippedFruit,
+        activeSlot: player.activeSlot, hasAura: player.hasAura,
+        masteryData: masteryData, position: { x: player.x, y: player.y }
+    };
+}
+
+function loadFromLocalStorage() {
+    const saved = localStorage.getItem('bloxseas_playerData');
+    if (!saved) return;
+    try {
+        const data = JSON.parse(saved);
+        player.name = data.name || "Player"; document.getElementById('username-input').value = player.name;
+        player.level = data.level || 1; player.exp = data.exp || 0; player.expReq = data.expReq || 100;
+        player.statPoints = data.statPoints || 0; if(data.stats) player.stats = data.stats;
+        player.beli = data.beli || 100; player.inventory = data.inventory || [];
+        player.health = data.health || player.getMaxHealth(); 
+        player.equippedMelee = data.equippedMelee || 'COMBAT';
+        player.equippedFruit = data.equippedFruit || null;
+        player.activeSlot = data.activeSlot || 1;
+        player.hasAura = data.hasAura || false;
+        
+        if(data.masteryData) { for(let key in data.masteryData) { if(masteryData[key]) masteryData[key] = data.masteryData[key]; } }
+        if(data.position) { player.x = data.position.x; player.y = data.position.y; }
+        
+        window.setActiveSlot(player.activeSlot);
+        if(player.hasAura) document.getElementById('btn-aura').classList.remove('hidden');
+        updateUI();
+    } catch(e) { console.error("Error loading save data:", e); }
+}
+
+window.saveGameManual = function() {
+    const saveData = getSaveDataObj();
+    localStorage.setItem('bloxseas_playerData', JSON.stringify(saveData));
+    notify("Game Saved Locally!", "#4ade80");
+};
+
+window.wipeData = function() {
+    if(!confirm("Are you sure you want to WIPE all your local save data? This cannot be undone!")) return;
+    localStorage.removeItem('bloxseas_playerData');
+    location.reload();
+}
+
+/**
+ * PEERJS MULTIPLAYER SYSTEM
+ */
+window.hostMultiplayer = function() {
+    peer = new Peer({
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        }
+    });
+
+    peer.on('open', (id) => {
+        isHost = true;
+        roomCode = id;
+        document.getElementById('mp-status').innerText = `Hosting Room Code: ${roomCode}`;
+        document.getElementById('mp-status').className = 'text-xs text-center font-bold mt-2 text-purple-400';
+        document.getElementById('room-input').value = roomCode;
+        notify(`Multiplayer Room Created! Share Code: ${roomCode}`, '#a855f7');
+    });
+
+    peer.on('connection', (conn) => {
+        peerConnections.push(conn);
+        setupConnection(conn);
+        notify("A player has joined your room!", "#38bdf8");
+    });
+
+    peer.on('error', (err) => {
+        console.error("PeerJS Error:", err);
+        notify("Connection error occurred.", "#ef4444");
+    });
+};
+
+window.joinMultiplayer = function() {
+    const code = document.getElementById('room-input').value.trim();
+    if (!code) { alert("Please enter a valid Room Code"); return; }
+
+    peer = new Peer({
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        }
+    });
+
+    peer.on('open', () => {
+        const conn = peer.connect(code);
+        peerConnections.push(conn);
+        setupConnection(conn);
+
+        conn.on('open', () => {
+            document.getElementById('mp-status').innerText = `Connected to Room: ${code}`;
+            document.getElementById('mp-status').className = 'text-xs text-center font-bold mt-2 text-indigo-400';
+            notify(`Joined Room!`, "#38bdf8");
+        });
+    });
+
+    peer.on('error', (err) => {
+        console.error("PeerJS Error:", err);
+        notify("Could not connect to room code.", "#ef4444");
+    });
+};
+
+function setupConnection(conn) {
+    conn.on('data', (data) => {
+        if (data.type === 'state') {
+            remotePlayers[conn.peer] = data.player;
+        }
+    });
+
+    conn.on('close', () => {
+        delete remotePlayers[conn.peer];
+        notify("A player disconnected.", "#ef4444");
+    });
+}
+
+function broadcastPlayerState() {
+    if (peerConnections.length === 0) return;
+    const payload = {
+        type: 'state',
+        player: {
+            name: player.name,
+            x: player.x,
+            y: player.y,
+            angle: player.angle,
+            level: player.level,
+            health: player.health,
+            maxHealth: player.getMaxHealth(),
+            auraActive: player.auraActive
+        }
+    };
+    peerConnections.forEach(conn => {
+        if (conn.open) conn.send(payload);
+    });
+}
+</script>
+</body>
+</html>
